@@ -1,0 +1,51 @@
+# Edit this file to introduce tasks to be run by cron.
+# 
+# Each task to run has to be defined through a single line
+# indicating with different fields when the task will be run
+# and what command to run for the task
+# 
+# To define the time you can provide concrete values for
+# minute (m), hour (h), day of month (dom), month (mon),
+# and day of week (dow) or use '*' in these fields (for 'any').
+# 
+# Notice that tasks will be started based on the cron's system
+# daemon's notion of time and timezones.
+# 
+# Output of the crontab jobs (including errors) is sent through
+# email to the user the crontab file belongs to (unless redirected).
+# 
+# For example, you can run a backup of all your user accounts
+# at 5 a.m every week with:
+# 0 5 * * 1 tar -zcf /var/backups/home.tgz /home/
+# 
+# For more information see the manual pages of crontab(5) and cron(8)
+# 
+
+# Quick README for Owl:
+# 1. Use s3fs to mount s3://glacials-owl at ~/s3
+# 2. Use cron to take a photo into this directory once per min
+# 3. Use cron to place current internal IP into this directory once per min
+# 4. Use cron to place current external IP into this directory once per min
+# 5. Use ffmpeg to stitch together photos from step 2 into a timelapse video once per day
+#
+# Note: We mount S3 instead of using the AWS CLI because ffmpeg cannot (to my
+# knowledge) read from photos from an S3 stream. We must also use this mount
+# point to write the photos because s3fs does not support (in a friendly way)
+# reading items that it itself did not produce.
+
+# m h  dom mon dow   command
+
+### Ops ###
+  @reboot            sleep 10 && s3fs glacials-owl ~/s3
+  * *  *   *   *     mkdir -p ~/s3/ops
+  * *  *   *   *     ip address > ~/s3/ops/ip.txt
+  * *  *   *   *     curl --silent ifconfig.io > ~/s3/ops/external-ip.txt
+
+### Timelapses ###
+
+  * *  *   *   *     mkdir -p ~/s3/timelapse/closet/photos
+# Take photos constantly
+  @reboot watch -n 10 raspistill --quality 100 --output - --nopreview  > ~/s3/timelapse/closet/photos/$(date -u +"\%Y-\%m-\%dT\%H:\%M:\%SZ").jpg
+
+# Remove blank files (corrupted?) so ffmpeg doesn't trip on them, then make our movie
+  * 0  *   *   *     find /home/glacials/s3/timelapse/closet/photos -type f -empty -delete && ffmpeg -y -framerate 30 -pattern_type glob -i "/home/glacials/s3/timelapse/closet/photos/*.jpg" -s:v 1440x1080 -c:v libx264 -crf 17 -pix_fmt yuv420p ~/s3/timelapse/closet/video.mp4
